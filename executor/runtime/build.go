@@ -3,6 +3,8 @@ package runtime
 import (
 	"encoding/json"
 
+	"github.com/hanfei1991/microcosm/master/jobmaster/benchmark"
+
 	"github.com/hanfei1991/microcosm/model"
 	"github.com/hanfei1991/microcosm/pkg/errors"
 	"github.com/pingcap/ticdc/dm/pkg/log"
@@ -18,11 +20,11 @@ func newTaskContainer(task *model.Task, ctx *taskContext) *taskContainer {
 	return t
 }
 
-func newHashOp(cfg *model.HashOp) operator {
+func newHashOp(cfg *benchmark.HashOp) operator {
 	return &opHash{}
 }
 
-func newReadTableOp(cfg *model.TableReaderOp) operator {
+func newReadTableOp(cfg *benchmark.TableReaderOp) operator {
 	return &opReceive{
 		addr:     cfg.Addr,
 		data:     make(chan *Record, 1024),
@@ -30,7 +32,7 @@ func newReadTableOp(cfg *model.TableReaderOp) operator {
 	}
 }
 
-func newSinkOp(cfg *model.TableSinkOp) operator {
+func newSinkOp(cfg *benchmark.TableSinkOp) operator {
 	return &opSink{
 		writer: fileWriter{
 			filePath: cfg.File,
@@ -55,24 +57,24 @@ func (s *Runtime) SubmitTasks(tasks []*model.Task) error {
 		task := newTaskContainer(t, s.ctx)
 		log.L().Logger.Info("config", zap.ByteString("op", t.Op))
 		switch t.OpTp {
-		case model.TableReaderType:
-			op := &model.TableReaderOp{}
+		case benchmark.TableReaderType:
+			op := &benchmark.TableReaderOp{}
 			err := json.Unmarshal(t.Op, op)
 			if err != nil {
 				return err
 			}
 			task.op = newReadTableOp(op)
 			task.setRunnable()
-		case model.HashType:
-			op := &model.HashOp{}
+		case benchmark.HashType:
+			op := &benchmark.HashOp{}
 			err := json.Unmarshal(t.Op, op)
 			if err != nil {
 				return err
 			}
 			task.op = newHashOp(op)
 			task.tryBlock()
-		case model.TableSinkType:
-			op := &model.TableSinkOp{}
+		case benchmark.TableSinkType:
+			op := &benchmark.TableSinkOp{}
 			err := json.Unmarshal(t.Op, op)
 			if err != nil {
 				return err

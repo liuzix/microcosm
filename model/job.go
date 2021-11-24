@@ -1,11 +1,15 @@
 package model
 
-import "github.com/hanfei1991/microcosm/pb"
+import (
+	"github.com/hanfei1991/microcosm/pb"
+)
 
 type (
 	JobID  int32
 	TaskID int32
 )
+
+type Operator []byte
 
 type Job struct {
 	ID    JobID
@@ -21,14 +25,19 @@ func (j *Job) ToPB() *pb.SubmitBatchTasksRequest {
 }
 
 type Task struct {
-	ID      TaskID
-	JobID   JobID
-	Outputs []TaskID
-	Inputs  []TaskID
+	ID       TaskID
+	JobID    JobID
+	SubJobID SubJobID
+	Outputs  []TaskID
+	Inputs   []TaskID
 
 	// TODO: operator or operator tree
-	OpTp             OperatorType
-	Op               Operator
+	// FIXME: this is for a single-operator task.
+	// We need more complicated abstraction to decouple
+	// operators from tasks.
+	OpTp OperatorType
+	Op   Operator
+
 	Cost             int
 	PreferedLocation string
 }
