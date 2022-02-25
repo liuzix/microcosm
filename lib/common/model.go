@@ -1,4 +1,4 @@
-package lib
+package common
 
 import (
 	"encoding/json"
@@ -44,22 +44,6 @@ const (
 	DmTask
 	CdcTask
 )
-
-type TimeoutConfig struct {
-	workerTimeoutDuration            time.Duration
-	workerTimeoutGracefulDuration    time.Duration
-	workerHeartbeatInterval          time.Duration
-	workerReportStatusInterval       time.Duration
-	masterHeartbeatCheckLoopInterval time.Duration
-}
-
-var defaultTimeoutConfig TimeoutConfig = TimeoutConfig{
-	workerTimeoutDuration:            time.Second * 15,
-	workerTimeoutGracefulDuration:    time.Second * 5,
-	workerHeartbeatInterval:          time.Second * 3,
-	workerReportStatusInterval:       time.Second * 3,
-	masterHeartbeatCheckLoopInterval: time.Second * 1,
-}
 
 type WorkerStatus struct {
 	Code         WorkerStatusCode `json:"code"`
@@ -124,7 +108,7 @@ type (
 )
 
 type WorkerMetaKVData struct {
-	MasterID   Master           `json:"id"`
+	MasterID   MasterID           `json:"id"`
 	NodeID     p2p.NodeID       `json:"node-id"`
 	StatusCode WorkerStatusCode `json:"status-code"`
 	Message    string           `json:"message"`

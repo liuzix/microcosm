@@ -1,4 +1,4 @@
-package lib
+package master
 
 import (
 	"context"
@@ -12,6 +12,9 @@ import (
 	"go.uber.org/atomic"
 	"go.uber.org/zap"
 
+	"github.com/hanfei1991/microcosm/lib/common"
+	"github.com/hanfei1991/microcosm/lib/internal/metahelpers"
+	"github.com/hanfei1991/microcosm/lib/internal/status"
 	"github.com/hanfei1991/microcosm/model"
 	"github.com/hanfei1991/microcosm/pb"
 	"github.com/hanfei1991/microcosm/pkg/clock"
@@ -20,18 +23,25 @@ import (
 	"github.com/hanfei1991/microcosm/pkg/p2p"
 )
 
+type (
+	MasterID = common.MasterID
+	WorkerID = common.WorkerID
+	WorkerStatus = common.WorkerStatus
+	Epoch = common.Epoch
+)
+
 // workerManager is for private use by BaseMaster.
 type workerManager interface {
 	IsInitialized(ctx context.Context) (bool, error)
 	Tick(ctx context.Context, sender p2p.MessageSender) (offlinedWorkers []*WorkerInfo, onlinedWorkers []*WorkerInfo)
-	HandleHeartbeat(msg *HeartbeatPingMessage, fromNode p2p.NodeID) error
+	HandleHeartbeat(msg *common.HeartbeatPingMessage, fromNode p2p.NodeID) error
 	OnWorkerCreated(ctx context.Context, id WorkerID, exeuctorNodeID p2p.NodeID) error
 	GetWorkerInfo(id WorkerID) (*WorkerInfo, bool)
 	PutWorkerInfo(info *WorkerInfo) bool
 	MessageSender() p2p.MessageSender
 	GetWorkerHandle(id WorkerID) WorkerHandle
 	GetWorkers() map[WorkerID]WorkerHandle
-	GetStatus(id WorkerID) (*WorkerStatus, bool)
+	GetStatus(id WorkerID) (*common.WorkerStatus, bool)
 	CheckStatusUpdate(ctx context.Context) error
 }
 
@@ -41,7 +51,7 @@ type workerManagerImpl struct {
 	initStartTime   time.Time
 	workerInfos     map[WorkerID]*WorkerInfo
 	tombstones      map[WorkerID]*WorkerStatus
-	statusReceivers map[WorkerID]*StatusReceiver
+	statusReceivers map[WorkerID]*status.Receiver
 
 	// read-only
 	masterEpoch   Epoch
@@ -71,7 +81,7 @@ func newWorkerManager(
 		initialized:     !needWait,
 		workerInfos:     make(map[WorkerID]*WorkerInfo),
 		tombstones:      make(map[WorkerID]*WorkerStatus),
-		statusReceivers: make(map[WorkerID]*StatusReceiver),
+		statusReceivers: make(map[WorkerID]*status.Receiver),
 
 		masterEpoch:   curEpoch,
 		masterID:      id,
@@ -147,7 +157,7 @@ func (m *workerManagerImpl) Tick(
 			// No heartbeat to respond to.
 			continue
 		}
-		reply := &HeartbeatPongMessage{
+		reply := &common.HeartbeatPongMessage{
 			SendTime:   workerInfo.lastHeartbeatSendTime,
 			ReplyTime:  m.clock.Now(),
 			ToWorkerID: workerID,
@@ -159,7 +169,7 @@ func (m *workerManagerImpl) Tick(
 			zap.String("worker-node-id", workerNodeID),
 			zap.Any("message", reply))
 
-		ok, err := sender.SendToNode(ctx, workerNodeID, HeartbeatPongTopic(m.masterID, workerID), reply)
+		ok, err := sender.SendToNode(ctx, workerNodeID, common.HeartbeatPongTopic(m.masterID, workerID), reply)
 		if err != nil {
 			log.L().Error("Failed to send heartbeat", zap.Error(err))
 		}
@@ -174,7 +184,7 @@ func (m *workerManagerImpl) Tick(
 	return
 }
 
-func (m *workerManagerImpl) HandleHeartbeat(msg *HeartbeatPingMessage, fromNode p2p.NodeID) error {
+func (m *workerManagerImpl) HandleHeartbeat(msg *common.HeartbeatPingMessage, fromNode p2p.NodeID) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -265,8 +275,8 @@ func (m *workerManagerImpl) addWorker(id WorkerID, executorNodeID p2p.NodeID) er
 		justOnlined: true,
 	}
 
-	workerMetaClient := NewWorkerMetadataClient(m.masterID, m.metaClient)
-	receiver := NewStatusReceiver(
+	workerMetaClient := metahelpers.NewMasterMetadataClient(m.masterID, m.metaClient)
+	receiver := status.NewStatusReceiver(
 		id,
 		workerMetaClient,
 		m.messageHandleManager,
@@ -310,9 +320,9 @@ func (m *workerManagerImpl) OnWorkerCreated(ctx context.Context, id WorkerID, ex
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	workerMetaClient := NewWorkerMetadataClient(m.masterID, m.metaClient)
+	workerMetaClient := metahelpers.NewWorkerMetadataClient(m.masterID, m.metaClient)
 	err := workerMetaClient.Store(ctx, id, &WorkerStatus{
-		Code: WorkerStatusCreated,
+		Code: common.WorkerStatusCreated,
 	})
 	if err != nil {
 		return errors.Trace(err)

@@ -1,35 +1,37 @@
-package lib
+package metahelpers
 
 import (
 	"context"
+	"github.com/hanfei1991/microcosm/lib/common"
 	"testing"
 
 	"github.com/hanfei1991/microcosm/pkg/metadata"
 	"github.com/stretchr/testify/require"
 )
 
+
 func TestMasterMetadata(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
 	metaKVClient := metadata.NewMetaMock()
-	meta := []*MasterMetaKVData{
+	meta := []*common.MasterMetaKVData{
 		{
-			MasterMetaExt: &MasterMetaExt{
+			MasterMetaExt: &common.MasterMetaExt{
 				ID: JobManagerUUID,
-				Tp: JobManager,
+				Tp: common.JobManager,
 			},
 		},
 		{
-			MasterMetaExt: &MasterMetaExt{
+			MasterMetaExt: &common.MasterMetaExt{
 				ID: "master-1",
-				Tp: FakeJobMaster,
+				Tp: common.FakeJobMaster,
 			},
 		},
 		{
-			MasterMetaExt: &MasterMetaExt{
+			MasterMetaExt: &common.MasterMetaExt{
 				ID: "master-2",
-				Tp: FakeJobMaster,
+				Tp: common.FakeJobMaster,
 			},
 		},
 	}
@@ -43,6 +45,6 @@ func TestMasterMetadata(t *testing.T) {
 	require.Nil(t, err)
 	require.Len(t, masters, 2)
 	for _, master := range masters {
-		require.Equal(t, FakeJobMaster, master.MasterMetaExt.Tp)
+		require.Equal(t, common.FakeJobMaster, master.MasterMetaExt.Tp)
 	}
 }

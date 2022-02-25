@@ -1,4 +1,4 @@
-package lib
+package metahelpers
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 	"github.com/pingcap/errors"
 	"go.etcd.io/etcd/clientv3"
 
+	"github.com/hanfei1991/microcosm/lib/common"
 	"github.com/hanfei1991/microcosm/pkg/adapter"
 	derror "github.com/hanfei1991/microcosm/pkg/errors"
 	"github.com/hanfei1991/microcosm/pkg/metadata"
@@ -15,18 +16,18 @@ import (
 const JobManagerUUID = "dataflow-engine-job-manager"
 
 type MasterMetadataClient struct {
-	masterID     MasterID
+	masterID     common.MasterID
 	metaKVClient metadata.MetaKV
 }
 
-func NewMasterMetadataClient(masterID MasterID, metaKVClient metadata.MetaKV) *MasterMetadataClient {
+func NewMasterMetadataClient(masterID common.MasterID, metaKVClient metadata.MetaKV) *MasterMetadataClient {
 	return &MasterMetadataClient{
 		masterID:     masterID,
 		metaKVClient: metaKVClient,
 	}
 }
 
-func (c *MasterMetadataClient) Load(ctx context.Context) (*MasterMetaKVData, error) {
+func (c *MasterMetadataClient) Load(ctx context.Context) (*common.MasterMetaKVData, error) {
 	key := adapter.MasterMetaKey.Encode(c.masterID)
 	rawResp, err := c.metaKVClient.Get(ctx, key)
 	if err != nil {
@@ -35,13 +36,13 @@ func (c *MasterMetadataClient) Load(ctx context.Context) (*MasterMetaKVData, err
 	resp := rawResp.(*clientv3.GetResponse)
 	if len(resp.Kvs) == 0 {
 		// TODO refine handling the situation where the mata key does not exist at this point
-		masterMeta := &MasterMetaKVData{
+		masterMeta := &common.MasterMetaKVData{
 			ID: c.masterID,
 		}
 		return masterMeta, nil
 	}
 	masterMetaBytes := resp.Kvs[0].Value
-	var masterMeta MasterMetaKVData
+	var masterMeta common.MasterMetaKVData
 	if err := json.Unmarshal(masterMetaBytes, &masterMeta); err != nil {
 		// TODO wrap the error
 		return nil, errors.Trace(err)
@@ -49,7 +50,7 @@ func (c *MasterMetadataClient) Load(ctx context.Context) (*MasterMetaKVData, err
 	return &masterMeta, nil
 }
 
-func (c *MasterMetadataClient) Store(ctx context.Context, data *MasterMetaKVData) error {
+func (c *MasterMetadataClient) Store(ctx context.Context, data *common.MasterMetaKVData) error {
 	key := adapter.MasterMetaKey.Encode(c.masterID)
 	dataBytes, err := json.Marshal(data)
 	if err != nil {
@@ -65,26 +66,26 @@ func (c *MasterMetadataClient) Store(ctx context.Context, data *MasterMetaKVData
 }
 
 // LoadAllMasters loads all job masters from metastore
-func (c *MasterMetadataClient) LoadAllMasters(ctx context.Context) ([]*MasterMetaKVData, error) {
+func (c *MasterMetadataClient) LoadAllMasters(ctx context.Context) ([]*common.MasterMetaKVData, error) {
 	raw, err := c.metaKVClient.Get(ctx, adapter.MasterMetaKey.Path(), clientv3.WithPrefix())
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
 	resp := raw.(*clientv3.GetResponse)
-	meta := make([]*MasterMetaKVData, 0, resp.Count)
+	meta := make([]*common.MasterMetaKVData, 0, resp.Count)
 	for _, kv := range resp.Kvs {
-		masterMeta := &MasterMetaKVData{}
+		masterMeta := &common.MasterMetaKVData{}
 		if err := json.Unmarshal(kv.Value, masterMeta); err != nil {
 			return nil, errors.Trace(err)
 		}
-		if masterMeta.MasterMetaExt.Tp != JobManager {
+		if masterMeta.MasterMetaExt.Tp != common.JobManager {
 			meta = append(meta, masterMeta)
 		}
 	}
 	return meta, nil
 }
 
-func (c *MasterMetadataClient) GenerateEpoch(ctx context.Context) (Epoch, error) {
+func (c *MasterMetadataClient) GenerateEpoch(ctx context.Context) (common.Epoch, error) {
 	rawResp, err := c.metaKVClient.Get(ctx, "/fake-key")
 	if err != nil {
 		return 0, errors.Trace(err)
@@ -95,12 +96,12 @@ func (c *MasterMetadataClient) GenerateEpoch(ctx context.Context) (Epoch, error)
 }
 
 type WorkerMetadataClient struct {
-	masterID     MasterID
+	masterID     common.MasterID
 	metaKVClient metadata.MetaKV
 }
 
 func NewWorkerMetadataClient(
-	masterID MasterID,
+	masterID common.MasterID,
 	metaClient metadata.MetaKV,
 ) *WorkerMetadataClient {
 	return &WorkerMetadataClient{
@@ -109,7 +110,7 @@ func NewWorkerMetadataClient(
 	}
 }
 
-func (c *WorkerMetadataClient) Load(ctx context.Context, workerID WorkerID) (*WorkerStatus, error) {
+func (c *WorkerMetadataClient) Load(ctx context.Context, workerID common.WorkerID) (*common.WorkerStatus, error) {
 	rawResp, err := c.metaKVClient.Get(ctx, c.workerMetaKey(workerID))
 	if err != nil {
 		return nil, errors.Trace(err)
@@ -119,7 +120,7 @@ func (c *WorkerMetadataClient) Load(ctx context.Context, workerID WorkerID) (*Wo
 		return nil, derror.ErrWorkerNoMeta.GenWithStackByArgs()
 	}
 	workerMetaBytes := resp.Kvs[0].Value
-	var workerMeta WorkerStatus
+	var workerMeta common.WorkerStatus
 	if err := json.Unmarshal(workerMetaBytes, &workerMeta); err != nil {
 		// TODO wrap the error
 		return nil, errors.Trace(err)
@@ -128,7 +129,7 @@ func (c *WorkerMetadataClient) Load(ctx context.Context, workerID WorkerID) (*Wo
 	return &workerMeta, nil
 }
 
-func (c *WorkerMetadataClient) Store(ctx context.Context, workerID WorkerID, data *WorkerStatus) error {
+func (c *WorkerMetadataClient) Store(ctx context.Context, workerID common.WorkerID, data *common.WorkerStatus) error {
 	dataBytes, err := json.Marshal(data)
 	if err != nil {
 		return errors.Trace(err)
@@ -142,10 +143,10 @@ func (c *WorkerMetadataClient) Store(ctx context.Context, workerID WorkerID, dat
 	return nil
 }
 
-func (c *WorkerMetadataClient) MasterID() MasterID {
+func (c *WorkerMetadataClient) MasterID() common.MasterID {
 	return c.masterID
 }
 
-func (c *WorkerMetadataClient) workerMetaKey(id WorkerID) string {
+func (c *WorkerMetadataClient) workerMetaKey(id common.WorkerID) string {
 	return adapter.WorkerKeyAdapter.Encode(c.masterID, id)
 }

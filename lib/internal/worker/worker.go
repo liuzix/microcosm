@@ -1,4 +1,4 @@
-package lib
+package worker
 
 import (
 	"context"
@@ -11,7 +11,10 @@ import (
 	"go.uber.org/dig"
 	"go.uber.org/zap"
 
+	"github.com/hanfei1991/microcosm/lib/internal/status"
 	runtime "github.com/hanfei1991/microcosm/executor/worker"
+	"github.com/hanfei1991/microcosm/lib/common"
+	"github.com/hanfei1991/microcosm/lib/internal/metahelpers"
 	"github.com/hanfei1991/microcosm/model"
 	"github.com/hanfei1991/microcosm/pkg/clock"
 	dcontext "github.com/hanfei1991/microcosm/pkg/context"
@@ -40,7 +43,7 @@ type WorkerImpl interface {
 	Workload() model.RescUnit
 
 	// OnMasterFailover is called when the master is failed over.
-	OnMasterFailover(reason MasterFailoverReason) error
+	OnMasterFailover(reason common.MasterFailoverReason) error
 
 	// CloseImpl tells the WorkerImpl to quit running StatusWorker and release resources.
 	CloseImpl(ctx context.Context) error
@@ -53,7 +56,7 @@ type BaseWorker interface {
 	Close(ctx context.Context) error
 	ID() runtime.RunnableID
 	MetaKVClient() metadata.MetaKV
-	UpdateStatus(ctx context.Context, status WorkerStatus) error
+	UpdateStatus(ctx context.Context, status common.WorkerStatus) error
 	SendMessage(ctx context.Context, topic p2p.Topic, message interface{}) (bool, error)
 }
 
@@ -65,13 +68,13 @@ type DefaultBaseWorker struct {
 	metaKVClient          metadata.MetaKV
 
 	masterClient *masterClient
-	masterID     MasterID
+	masterID     common.MasterID
 
-	workerMetaClient *WorkerMetadataClient
-	statusSender     *StatusSender
+	workerMetaClient *metahelpers.WorkerMetadataClient
+	statusSender     *status.Sender
 
-	id            WorkerID
-	timeoutConfig TimeoutConfig
+	id            common.WorkerID
+	timeoutConfig common.TimeoutConfig
 
 	pool workerpool.AsyncPool
 
@@ -96,8 +99,8 @@ type workerParams struct {
 func NewBaseWorker(
 	ctx *dcontext.Context,
 	impl WorkerImpl,
-	workerID WorkerID,
-	masterID MasterID,
+	workerID common.WorkerID,
+	masterID common.MasterID,
 ) BaseWorker {
 	var params workerParams
 	if err := ctx.Deps().Fill(&params); err != nil {
@@ -113,7 +116,7 @@ func NewBaseWorker(
 
 		masterID:      masterID,
 		id:            workerID,
-		timeoutConfig: defaultTimeoutConfig,
+		timeoutConfig: common.DefaultTimeoutConfig,
 
 		pool: workerpool.NewDefaultAsyncPool(1),
 
@@ -165,15 +168,15 @@ func (w *DefaultBaseWorker) doPreInit(ctx context.Context) error {
 		w.metaKVClient,
 		w.clock.Mono(),
 		func() error {
-			return errors.Trace(w.Impl.OnMasterFailover(MasterFailoverReason{
+			return errors.Trace(w.Impl.OnMasterFailover(common.MasterFailoverReason{
 				// TODO support other fail-over reasons
-				Code: MasterTimedOut,
+				Code: common.MasterTimedOut,
 			}))
 		})
 
-	w.workerMetaClient = NewWorkerMetadataClient(w.masterID, w.metaKVClient)
+	w.workerMetaClient = metahelpers.NewWorkerMetadataClient(w.masterID, w.metaKVClient)
 
-	w.statusSender = NewStatusSender(w.id, w.masterClient, w.workerMetaClient, w.messageSender, w.pool)
+	w.statusSender = status.NewStatusSender(w.id, w.masterClient, w.workerMetaClient, w.messageSender, w.pool)
 
 	if err := w.initMessageHandlers(ctx); err != nil {
 		return errors.Trace(err)
@@ -187,8 +190,8 @@ func (w *DefaultBaseWorker) doPreInit(ctx context.Context) error {
 }
 
 func (w *DefaultBaseWorker) doPostInit(ctx context.Context) error {
-	if err := w.UpdateStatus(ctx, WorkerStatus{
-		Code: WorkerStatusInit,
+	if err := w.UpdateStatus(ctx, common.WorkerStatus{
+		Code: common.WorkerStatusInit,
 	}); err != nil {
 		return errors.Trace(err)
 	}
@@ -263,7 +266,7 @@ func (w *DefaultBaseWorker) MetaKVClient() metadata.MetaKV {
 	return w.metaKVClient
 }
 
-func (w *DefaultBaseWorker) UpdateStatus(ctx context.Context, status WorkerStatus) error {
+func (w *DefaultBaseWorker) UpdateStatus(ctx context.Context, status common.WorkerStatus) error {
 	err := w.statusSender.SendStatus(ctx, status)
 	if err != nil {
 		return errors.Trace(err)

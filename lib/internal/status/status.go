@@ -1,4 +1,4 @@
-package lib
+package status
 
 import (
 	"context"
@@ -12,6 +12,8 @@ import (
 	"go.uber.org/atomic"
 	"go.uber.org/zap"
 
+	"github.com/hanfei1991/microcosm/lib/common"
+	"github.com/hanfei1991/microcosm/lib/internal/metahelpers"
 	"github.com/hanfei1991/microcosm/pkg/clock"
 	derror "github.com/hanfei1991/microcosm/pkg/errors"
 	"github.com/hanfei1991/microcosm/pkg/p2p"
@@ -25,11 +27,11 @@ const (
 	senderFSMSending
 )
 
-// StatusSender is used for a worker to send its status to its master.
-type StatusSender struct {
-	workerID WorkerID
+// Sender is used for a worker to send its status to its master.
+type Sender struct {
+	workerID common.WorkerID
 
-	workerMetaClient *WorkerMetadataClient
+	workerMetaClient *metahelpers.WorkerMetadataClient
 	messageSender    p2p.MessageSender
 	masterClient     *masterClient
 
@@ -39,7 +41,7 @@ type StatusSender struct {
 	// [Sending] ==sent successfully==> [Idle]
 	// [Sending] ==need to retry==> [Pending]
 	fsmState           atomic.Int32
-	lastUnsentStatus   *WorkerStatus
+	lastUnsentStatus   *common.WorkerStatus
 	lastUnsentStatusMu sync.RWMutex
 
 	pool workerpool.AsyncPool
@@ -50,13 +52,13 @@ type StatusSender struct {
 // NewStatusSender returns a new StatusSender.
 // NOTE: the pool is owned by the caller.
 func NewStatusSender(
-	workerID WorkerID,
+	workerID common.WorkerID,
 	masterClient *masterClient,
-	workerMetaClient *WorkerMetadataClient,
+	workerMetaClient *metahelpers.WorkerMetadataClient,
 	messageSender p2p.MessageSender,
 	pool workerpool.AsyncPool,
-) *StatusSender {
-	return &StatusSender{
+) *Sender {
+	return &Sender{
 		workerID:         workerID,
 		workerMetaClient: workerMetaClient,
 		messageSender:    messageSender,
@@ -68,7 +70,7 @@ func NewStatusSender(
 }
 
 // Tick should be called periodically to drive the logic internal to StatusSender.
-func (s *StatusSender) Tick(ctx context.Context) error {
+func (s *Sender) Tick(ctx context.Context) error {
 	select {
 	case <-ctx.Done():
 		return errors.Trace(ctx.Err())
@@ -86,13 +88,13 @@ func (s *StatusSender) Tick(ctx context.Context) error {
 	return nil
 }
 
-func (s *StatusSender) getLastUnsentStatus() *WorkerStatus {
+func (s *Sender) getLastUnsentStatus() *common.WorkerStatus {
 	s.lastUnsentStatusMu.Lock()
 	defer s.lastUnsentStatusMu.Unlock()
 	return s.lastUnsentStatus
 }
 
-func (s *StatusSender) setLastUnsentStatus(status *WorkerStatus) {
+func (s *Sender) setLastUnsentStatus(status *common.WorkerStatus) {
 	s.lastUnsentStatusMu.Lock()
 	defer s.lastUnsentStatusMu.Unlock()
 	s.lastUnsentStatus = status
@@ -102,7 +104,7 @@ func (s *StatusSender) setLastUnsentStatus(status *WorkerStatus) {
 // of a status change.
 // This function is non-blocking and if any error occurred during or after network IO,
 // the subsequent Tick will return an error.
-func (s *StatusSender) SendStatus(ctx context.Context, status WorkerStatus) error {
+func (s *Sender) SendStatus(ctx context.Context, status common.WorkerStatus) error {
 	if s.fsmState.Load() != senderFSMIdle {
 		return derror.ErrWorkerUpdateStatusTryAgain.GenWithStackByArgs()
 	}
@@ -117,7 +119,7 @@ func (s *StatusSender) SendStatus(ctx context.Context, status WorkerStatus) erro
 	return nil
 }
 
-func (s *StatusSender) sendStatus(ctx context.Context) error {
+func (s *Sender) sendStatus(ctx context.Context) error {
 	err := s.pool.Go(ctx, func() {
 		if !s.fsmState.CAS(senderFSMPending, senderFSMSending) {
 			return
@@ -155,7 +157,7 @@ func (s *StatusSender) sendStatus(ctx context.Context) error {
 	return errors.Trace(err)
 }
 
-func (s *StatusSender) onError(err error) {
+func (s *Sender) onError(err error) {
 	select {
 	case s.errCh <- err:
 	default:
@@ -164,23 +166,23 @@ func (s *StatusSender) onError(err error) {
 	}
 }
 
-func workerStatusUpdatedTopic(masterID MasterID, workerID WorkerID) string {
+func workerStatusUpdatedTopic(masterID common.MasterID, workerID common.WorkerID) string {
 	return fmt.Sprintf("worker-status-updated-%s-%s", masterID, workerID)
 }
 
 type workerStatusUpdatedMessage struct {
-	Epoch Epoch
+	Epoch common.Epoch
 }
 
-// StatusReceiver is used by a master to receive the latest status update from **a** worker.
-type StatusReceiver struct {
-	workerID WorkerID
+// Receiver is used by a master to receive the latest status update from **a** worker.
+type Receiver struct {
+	workerID common.WorkerID
 
-	workerMetaClient      *WorkerMetadataClient
+	workerMetaClient      *metahelpers.WorkerMetadataClient
 	messageHandlerManager p2p.MessageHandlerManager
 
 	statusMu    sync.RWMutex
-	statusCache WorkerStatus
+	statusCache common.WorkerStatus
 
 	hasPendingNotification atomic.Bool
 	lastStatusUpdated      atomic.Time
@@ -188,7 +190,7 @@ type StatusReceiver struct {
 
 	errCh chan error
 
-	epoch Epoch
+	epoch common.Epoch
 
 	pool workerpool.AsyncPool
 
@@ -201,14 +203,14 @@ type StatusReceiver struct {
 // for checking errors.
 // NOTE: the pool is owned and managed by the caller.
 func NewStatusReceiver(
-	workerID WorkerID,
-	workerMetaClient *WorkerMetadataClient,
+	workerID common.WorkerID,
+	workerMetaClient *metahelpers.WorkerMetadataClient,
 	messageHandlerManager p2p.MessageHandlerManager,
-	epoch Epoch,
+	epoch common.Epoch,
 	pool workerpool.AsyncPool,
 	clock clock.Clock,
-) *StatusReceiver {
-	return &StatusReceiver{
+) *Receiver {
+	return &Receiver{
 		workerID:              workerID,
 		workerMetaClient:      workerMetaClient,
 		messageHandlerManager: messageHandlerManager,
@@ -221,7 +223,7 @@ func NewStatusReceiver(
 
 // Init should be called to initialize a StatusReceiver.
 // NOTE: this function can be blocked by IO to the metastore.
-func (r *StatusReceiver) Init(ctx context.Context) error {
+func (r *Receiver) Init(ctx context.Context) error {
 	topic := workerStatusUpdatedTopic(r.workerMetaClient.MasterID(), r.workerID)
 	ok, err := r.messageHandlerManager.RegisterHandler(
 		ctx,
@@ -262,7 +264,7 @@ func (r *StatusReceiver) Init(ctx context.Context) error {
 }
 
 // Status returns the latest status of the worker.
-func (r *StatusReceiver) Status() WorkerStatus {
+func (r *Receiver) Status() common.WorkerStatus {
 	r.statusMu.RLock()
 	defer r.statusMu.RUnlock()
 
@@ -270,7 +272,7 @@ func (r *StatusReceiver) Status() WorkerStatus {
 }
 
 // Tick should be called periodically to drive the logic internal to StatusReceiver.
-func (r *StatusReceiver) Tick(ctx context.Context) error {
+func (r *Receiver) Tick(ctx context.Context) error {
 	if r.hasPendingNotification.Load() {
 		log.L().Info("has pending notification")
 	}
@@ -309,8 +311,8 @@ func (r *StatusReceiver) Tick(ctx context.Context) error {
 	return nil
 }
 
-func (r *StatusReceiver) Close(ctx context.Context) error {
-	topic := StatusUpdateTopic(r.workerMetaClient.MasterID(), r.workerID)
+func (r *Receiver) Close(ctx context.Context) error {
+	topic := workerStatusUpdatedTopic(r.workerMetaClient.MasterID(), r.workerID)
 	ok, err := r.messageHandlerManager.UnregisterHandler(ctx, topic)
 	if err != nil {
 		return errors.Trace(err)
@@ -322,7 +324,7 @@ func (r *StatusReceiver) Close(ctx context.Context) error {
 	return nil
 }
 
-func (r *StatusReceiver) onError(err error) {
+func (r *Receiver) onError(err error) {
 	select {
 	case r.errCh <- err:
 	default:

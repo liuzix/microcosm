@@ -1,4 +1,4 @@
-package lib
+package status
 
 import (
 	"context"
