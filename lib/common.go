@@ -159,6 +159,10 @@ type (
 	}
 )
 
+func (m *MasterMetaKVData) GetID() string {
+	return m.ID
+}
+
 func (m *MasterMetaKVData) Marshal() ([]byte, error) {
 	return json.Marshal(m)
 }
