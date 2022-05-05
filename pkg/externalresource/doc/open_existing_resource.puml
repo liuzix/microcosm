@@ -1,0 +1,22 @@
+@startuml
+box Executor
+participant Business
+participant Framework
+end box
+
+participant Servermaster
+participant Metastore
+
+
+Business -> Framework ++: OpenStorage
+Framework --> Servermaster ++: QueryResourceRequest
+Servermaster --> Metastore ++: Queries by resource ID.
+note over Metastore: resource exists
+Metastore --> Servermaster --: Resource Metadata
+Servermaster --> Framework --: QueryResourceResponse
+
+Framework -> Framework: find local directory and creates Handle
+Framework -> Business --: returns Handle
+
+Business -> Business: reads files with Handle
+@enduml

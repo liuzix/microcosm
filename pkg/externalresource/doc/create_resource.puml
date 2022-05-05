@@ -1,0 +1,30 @@
+@startuml
+box Executor
+participant Business
+participant Framework
+end box
+
+participant Servermaster
+participant Metastore
+
+
+Business -> Framework ++: OpenStorage
+Framework --> Servermaster ++: QueryResourceRequest
+note right of Framework: checks if the resource ID exists
+Servermaster --> Metastore ++: Queries by resource ID.
+note over Metastore: resource does not exist
+Metastore --> Servermaster --: No resource ID
+Servermaster --> Framework --: Not found
+
+Framework -> Framework: creates local directory and Handle
+Framework -> Business --: returns Handle
+
+Business -> Business: writes files with Handle
+
+Business -> Framework ++: handle.Persist()
+Framework --> Servermaster ++: CreateResourceRequest
+Servermaster --> Metastore ++: persists the record
+Metastore --> Servermaster --: finished
+Servermaster --> Framework --: finished
+Framework --> Business --:returns
+@enduml
